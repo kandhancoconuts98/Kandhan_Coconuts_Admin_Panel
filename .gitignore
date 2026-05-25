@@ -13,5 +13,17 @@ next.user-config.*
 # Common ignores
 node_modules
 .next/
+mobile/.env
+mobile/android/
+mobile/.expo/
+# Legacy Capacitor WebView shell (use mobile/ React Native app instead)
+android/
+capacitor.config.ts
+scripts/build-android-apk.ps1
+android/local.properties
+android/.gradle/
+android/app/build/
+android/build/
+android/capacitor-cordova-android-plugins/build/
 .DS_Store
 .vercel

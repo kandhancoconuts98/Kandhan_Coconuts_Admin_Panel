@@ -4,8 +4,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/lib/auth-context'
 import { AuthGate } from '@/components/kandhan/auth-gate'
-import { StoreHydration } from '@/components/store-hydration'
-import { SupabaseAutoSync } from '@/components/supabase-auto-sync'
+import { FarmDbSync } from '@/components/farm-db-sync'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
@@ -21,6 +20,16 @@ export const metadata: Metadata = {
   icons: {
     icon: '/icon.svg',
   },
+  appleWebApp: {
+    capable: true,
+    title: 'Kandhan Coconuts',
+  },
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    viewportFit: 'cover',
+  },
 }
 
 export default function RootLayout({
@@ -33,8 +42,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <AuthProvider>
-            <StoreHydration />
-            <SupabaseAutoSync />
+            <FarmDbSync />
             <AuthGate>{children}</AuthGate>
             <Toaster />
           </AuthProvider>

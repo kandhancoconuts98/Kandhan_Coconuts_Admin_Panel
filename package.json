@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "mobile": "npm run start --prefix mobile",
+    "mobile:android": "npm run android --prefix mobile",
+    "mobile:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-mobile-apk.ps1",
+    "deploy": "powershell -ExecutionPolicy Bypass -File scripts/deploy-vercel.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -37,7 +41,8 @@
     "@radix-ui/react-toggle": "1.1.10",
     "@radix-ui/react-toggle-group": "1.1.11",
     "@radix-ui/react-tooltip": "1.2.8",
-    "@supabase/supabase-js": "^2.105.3",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
     "@vercel/analytics": "1.6.1",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",

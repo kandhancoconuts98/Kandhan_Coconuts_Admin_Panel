@@ -1,6 +1,6 @@
 'use client'
 
-import { use } from 'react'
+import { use, useMemo } from 'react'
 import Link from 'next/link'
 import { useFarmStore } from '@/lib/store'
 import { Button } from '@/components/ui/button'
@@ -13,8 +13,10 @@ export default function FarmDetailPage({
 }) {
   const { id } = use(params)
   const farm = useFarmStore((s) => s.farms.find((f) => f.id === id))
-  const workers = useFarmStore((s) =>
-    s.workers.filter((w) => w.assignedFarmIds?.includes(id))
+  const allWorkers = useFarmStore((s) => s.workers)
+  const workers = useMemo(
+    () => allWorkers.filter((w) => w.assignedFarmIds?.includes(id)),
+    [allWorkers, id]
   )
 
   if (!farm) {

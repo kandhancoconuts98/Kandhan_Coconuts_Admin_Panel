@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { farmBackupSignature, farmStateSignature } from '@/lib/farm-signature'
 
 export type WorkerStatus = 'active' | 'inactive' | 'leave'
 export type WorkerType = 'plucker' | 'general'
@@ -49,9 +49,11 @@ export interface SalaryRuleHistory {
   changedAt: string
 }
 
-/** Stable fallback for `useFarmStore` selectors */
+/** Stable fallbacks for `useFarmStore` selectors (never inline `|| []` / `?? {}`) */
 export const EMPTY_SELECTED_WORKER_IDS: string[] = []
 export const EMPTY_FARM_IDS: string[] = []
+export const EMPTY_ATTENDANCE_DAY: Record<string, AttendanceStatus> = {}
+export const EMPTY_FARM_ASSIGNMENTS_DAY: Record<string, string[]> = {}
 
 export interface FarmBackupV1 {
   version: 1
@@ -103,9 +105,7 @@ interface FarmStore {
   getRecordsForDateRange: (from: string, to: string) => DailyRecord[]
 }
 
-export const useFarmStore = create<FarmStore>()(
-  persist(
-    (set, get) => ({
+export const useFarmStore = create<FarmStore>()((set, get) => ({
       workers: [],
       farms: DEFAULT_FARMS,
       dailyRecords: [],
@@ -282,29 +282,47 @@ export const useFarmStore = create<FarmStore>()(
       },
 
       setAttendance: (workerId, date, status) => {
-        set((state) => ({
-          attendance: {
-            ...state.attendance,
-            [date]: { ...(state.attendance[date] ?? {}), [workerId]: status },
-          },
-        }))
+        set((state) => {
+          const day = state.attendance[date] ?? EMPTY_ATTENDANCE_DAY
+          if (day[workerId] === status) return state
+          return {
+            attendance: {
+              ...state.attendance,
+              [date]: { ...day, [workerId]: status },
+            },
+          }
+        })
       },
 
       setFarmAssignment: (workerId, date, farmIds) => {
-        set((state) => ({
-          farmAssignments: {
-            ...state.farmAssignments,
-            [date]: {
-              ...(state.farmAssignments[date] ?? {}),
-              [workerId]: farmIds,
+        set((state) => {
+          const day = state.farmAssignments[date] ?? EMPTY_FARM_ASSIGNMENTS_DAY
+          const prev = day[workerId]
+          if (
+            prev &&
+            prev.length === farmIds.length &&
+            prev.every((id, i) => id === farmIds[i])
+          ) {
+            return state
+          }
+          return {
+            farmAssignments: {
+              ...state.farmAssignments,
+              [date]: { ...day, [workerId]: farmIds },
             },
-          },
-        }))
+          }
+        })
       },
 
       updateSettings: (partial) => {
         set((state) => {
           const merged: Settings = { ...state.settings, ...partial }
+          if (
+            merged.ratePerTree === state.settings.ratePerTree &&
+            merged.pfPerTree === state.settings.pfPerTree
+          ) {
+            return state
+          }
           const historyEntry: SalaryRuleHistory = {
             id: Date.now().toString(),
             ratePerTree: merged.ratePerTree,
@@ -323,21 +341,53 @@ export const useFarmStore = create<FarmStore>()(
       },
 
       importFromBackup: (backup) => {
-        set((state) => ({
-          workers: backup.workers,
-          dailyRecords: backup.dailyRecords,
-          selectedWorkerIds: backup.selectedWorkerIds,
-          farms: backup.farms?.length ? backup.farms : state.farms,
-          attendance: backup.attendance ?? state.attendance,
-          farmAssignments: backup.farmAssignments ?? state.farmAssignments,
-          salaryRuleHistory:
-            backup.salaryRuleHistory ?? state.salaryRuleHistory,
-          settings: {
-            ...state.settings,
+        set((state) => {
+          const nextSettings = {
             ratePerTree: backup.settings.ratePerTree,
             pfPerTree: backup.settings.pfPerTree,
-          },
-        }))
+          }
+          const nextFarms = backup.farms?.length ? backup.farms : state.farms
+          const nextAttendance = backup.attendance ?? state.attendance
+          const nextFarmAssignments =
+            backup.farmAssignments ?? state.farmAssignments
+          const nextHistory =
+            backup.salaryRuleHistory ?? state.salaryRuleHistory
+
+          const incomingSig = farmBackupSignature({
+            version: 1,
+            updatedAt: backup.updatedAt,
+            workers: backup.workers,
+            dailyRecords: backup.dailyRecords,
+            selectedWorkerIds: backup.selectedWorkerIds,
+            settings: nextSettings,
+            farms: nextFarms,
+            attendance: nextAttendance,
+            farmAssignments: nextFarmAssignments,
+            salaryRuleHistory: nextHistory,
+          })
+          const currentSig = farmStateSignature({
+            workers: state.workers,
+            dailyRecords: state.dailyRecords,
+            selectedWorkerIds: state.selectedWorkerIds,
+            settings: state.settings,
+            farms: state.farms,
+            attendance: state.attendance,
+            farmAssignments: state.farmAssignments,
+            salaryRuleHistory: state.salaryRuleHistory,
+          })
+          if (incomingSig === currentSig) return state
+
+          return {
+            workers: backup.workers,
+            dailyRecords: backup.dailyRecords,
+            selectedWorkerIds: backup.selectedWorkerIds,
+            farms: nextFarms,
+            attendance: nextAttendance,
+            farmAssignments: nextFarmAssignments,
+            salaryRuleHistory: nextHistory,
+            settings: nextSettings,
+          }
+        })
       },
 
       getWorkersForDate: (date) => {
@@ -350,10 +400,4 @@ export const useFarmStore = create<FarmStore>()(
         const state = get()
         return state.dailyRecords.filter((r) => r.date >= from && r.date <= to)
       },
-    }),
-    {
-      name: 'coconut-farm-storage',
-      skipHydration: true,
-    }
-  )
-)
+}))

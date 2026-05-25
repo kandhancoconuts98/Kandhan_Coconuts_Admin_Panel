@@ -1,19 +1,12 @@
 import { NextResponse } from 'next/server'
-import { getSupabaseAdmin } from '@/lib/server/supabase'
+import { loadFarmState, saveFarmState } from '@/lib/server/farm-db'
+import { getOrgId } from '@/lib/server/org-id'
 import type { FarmBackupV1 } from '@/lib/store'
 
 export const runtime = 'nodejs'
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status })
-}
-
-function getFarmId() {
-  const farmId = (process.env.COCONEST_FARM_ID ?? '').trim()
-  if (!farmId) {
-    throw new Error('Missing COCONEST_FARM_ID env var')
-  }
-  return farmId
 }
 
 function isBackupV1(x: unknown): x is FarmBackupV1 {
@@ -29,21 +22,11 @@ function isBackupV1(x: unknown): x is FarmBackupV1 {
   )
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const farmId = getFarmId()
-
-    const supabase = getSupabaseAdmin()
-    const { data, error } = await supabase
-      .from('farm_backups')
-      .select('data')
-      .eq('farm_id', farmId)
-      .maybeSingle()
-
-    if (error) throw new Error(error.message)
-    if (!data?.data) return jsonError('No backup found for this farmId', 404)
-
-    return NextResponse.json({ ok: true, backup: data.data })
+    const orgId = getOrgId()
+    const state = await loadFarmState(orgId)
+    return NextResponse.json({ ok: true, backup: state })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
     return jsonError(msg, 500)
@@ -55,17 +38,10 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       backup?: unknown
     }
-    const farmId = getFarmId()
+    const orgId = getOrgId()
     if (!isBackupV1(body.backup)) return jsonError('Invalid backup', 400)
 
-    const supabase = getSupabaseAdmin()
-    const { error } = await supabase.from('farm_backups').upsert({
-      farm_id: farmId,
-      data: body.backup,
-      updated_at: new Date().toISOString(),
-    })
-
-    if (error) throw new Error(error.message)
+    await saveFarmState(body.backup, orgId)
     return NextResponse.json({ ok: true })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error'

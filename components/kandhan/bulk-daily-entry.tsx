@@ -1,9 +1,15 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { format } from 'date-fns'
 import { Calendar, Search, Save, Plus, Trash2 } from 'lucide-react'
-import { useFarmStore, EMPTY_SELECTED_WORKER_IDS } from '@/lib/store'
+import {
+  useFarmStore,
+  EMPTY_SELECTED_WORKER_IDS,
+  EMPTY_ATTENDANCE_DAY,
+  EMPTY_FARM_ASSIGNMENTS_DAY,
+} from '@/lib/store'
 import type { AttendanceStatus } from '@/lib/store'
 import { calcNetSalary } from '@/lib/farm-utils'
 import { Button } from '@/components/ui/button'
@@ -24,16 +30,26 @@ export function BulkDailyEntry() {
   const [search, setSearch] = useState('')
   const { toast } = useToast()
 
-  const workers = useFarmStore((s) => s.workers)
-  const farms = useFarmStore((s) => s.farms)
-  const settings = useFarmStore((s) => s.settings)
-  const dailyRecords = useFarmStore((s) => s.dailyRecords)
-  const selectedWorkerIds = useFarmStore((s) => {
-    const ids = s.selectedWorkerIds[date]
-    return ids ?? EMPTY_SELECTED_WORKER_IDS
-  })
-  const attendance = useFarmStore((s) => s.attendance[date] ?? {})
-  const farmAssignments = useFarmStore((s) => s.farmAssignments[date] ?? {})
+  const {
+    workers,
+    farms,
+    settings,
+    dailyRecords,
+    selectedWorkerIds,
+    attendance,
+    farmAssignments,
+  } = useFarmStore(
+    useShallow((s) => ({
+      workers: s.workers,
+      farms: s.farms,
+      settings: s.settings,
+      dailyRecords: s.dailyRecords,
+      selectedWorkerIds:
+        s.selectedWorkerIds[date] ?? EMPTY_SELECTED_WORKER_IDS,
+      attendance: s.attendance[date] ?? EMPTY_ATTENDANCE_DAY,
+      farmAssignments: s.farmAssignments[date] ?? EMPTY_FARM_ASSIGNMENTS_DAY,
+    }))
+  )
 
   const updateTreeCount = useFarmStore((s) => s.updateTreeCount)
   const setAttendance = useFarmStore((s) => s.setAttendance)
