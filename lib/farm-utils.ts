@@ -7,7 +7,8 @@ import {
   eachDayOfInterval,
   parseISO,
 } from 'date-fns'
-import type { DailyRecord, Farm, Settings, Worker } from '@/lib/store'
+import type { DailyRecord, Farm, LoadTrip, Settings, Worker } from '@/lib/store'
+import { isLoader } from '@/lib/worker-types'
 
 export type AttendanceStatus = 'present' | 'absent' | 'leave'
 
@@ -53,13 +54,28 @@ export function calcPf(trees: number, settings: Settings) {
   return trees * settings.pfPerTree
 }
 
+export function calcNetSalaryFromLoads(loads: number, settings: Settings) {
+  return loads * (settings.ratePerLoad - settings.pfPerLoad)
+}
+
 export function getWorkerWeeklyStats(
   workerId: string,
   records: DailyRecord[],
   settings: Settings,
-  date = new Date()
+  date = new Date(),
+  options?: { loadTrips?: LoadTrip[]; workerType?: string }
 ) {
   const { from, to } = getWeekRange(date)
+  if (isLoader(options?.workerType) && options?.loadTrips) {
+    let loads = 0
+    for (const trip of options.loadTrips) {
+      if (trip.date >= from && trip.date <= to && trip.workerIds.includes(workerId)) {
+        loads += trip.loadCount
+      }
+    }
+    const net = calcNetSalaryFromLoads(loads, settings)
+    return { trees: loads, gross: loads * settings.ratePerLoad, net, pf: loads * settings.pfPerLoad }
+  }
   const trees = sumTreesForWorker(workerId, records, from, to)
   return {
     trees,

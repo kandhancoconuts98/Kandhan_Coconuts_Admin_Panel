@@ -1,9 +1,41 @@
 import { create } from 'zustand'
 import { farmBackupSignature, farmStateSignature } from '@/lib/farm-signature'
+import { defaultSettings, normalizeLoadTrips, normalizeWorkers } from '@/lib/operations-utils'
+import { normalizeWorkerType } from '@/lib/worker-types'
 
 export type WorkerStatus = 'active' | 'inactive' | 'leave'
-export type WorkerType = 'plucker' | 'general'
+export type WorkerType = 'climber' | 'loader'
 export type AttendanceStatus = 'present' | 'absent' | 'leave'
+
+export interface DailyAdvance {
+  date: string
+  workerId: string
+  amount: number
+}
+
+export interface LoadTrip {
+  id: string
+  date: string
+  vehicleNumber: string
+  loadCount: number
+  dieselAmount: number
+  workerIds: string[]
+  /** Per-worker advance on this trip (optional) */
+  workerAdvances: Record<string, number>
+}
+
+export interface DailyLoadLog {
+  date: string
+  notes?: string
+}
+
+export interface SalaryPayment {
+  workerId: string
+  periodFrom: string
+  periodTo: string
+  paidAmount: number
+  deductAdvance?: boolean
+}
 
 export interface Worker {
   id: string
@@ -39,6 +71,8 @@ export interface DailyRecord {
 export interface Settings {
   ratePerTree: number
   pfPerTree: number
+  ratePerLoad: number
+  pfPerLoad: number
 }
 
 export interface SalaryRuleHistory {
@@ -61,11 +95,15 @@ export interface FarmBackupV1 {
   workers: Worker[]
   dailyRecords: DailyRecord[]
   selectedWorkerIds: Record<string, string[]>
-  settings: { ratePerTree: number; pfPerTree: number }
+  settings: { ratePerTree: number; pfPerTree: number; ratePerLoad?: number; pfPerLoad?: number }
   farms?: Farm[]
   attendance?: Record<string, Record<string, AttendanceStatus>>
   farmAssignments?: Record<string, Record<string, string[]>>
   salaryRuleHistory?: SalaryRuleHistory[]
+  dailyAdvances?: DailyAdvance[]
+  loadTrips?: LoadTrip[]
+  dailyLoadLogs?: DailyLoadLog[]
+  salaryPayments?: SalaryPayment[]
 }
 
 const DEFAULT_FARMS: Farm[] = [
@@ -84,6 +122,10 @@ interface FarmStore {
   attendance: Record<string, Record<string, AttendanceStatus>>
   farmAssignments: Record<string, Record<string, string[]>>
   salaryRuleHistory: SalaryRuleHistory[]
+  dailyAdvances: DailyAdvance[]
+  loadTrips: LoadTrip[]
+  dailyLoadLogs: DailyLoadLog[]
+  salaryPayments: SalaryPayment[]
 
   addWorker: (worker: Omit<Worker, 'id'> & { name: string }) => string
   updateWorker: (id: string, partial: Partial<Worker>) => void
@@ -97,6 +139,18 @@ interface FarmStore {
   selectAllWorkersForDate: (date: string) => void
   unselectAllWorkersForDate: (date: string) => void
   updateTreeCount: (workerId: string, date: string, count: number, farmId?: string) => void
+  setDailyAdvance: (workerId: string, date: string, amount: number) => void
+  adjustDailyAdvance: (workerId: string, date: string, delta: number) => void
+  setSalaryPayment: (
+    workerId: string,
+    periodFrom: string,
+    periodTo: string,
+    partial: { paidAmount?: number; deductAdvance?: boolean }
+  ) => void
+  addLoadTrip: (trip: Omit<LoadTrip, 'id'>) => string
+  updateLoadTrip: (id: string, partial: Partial<Omit<LoadTrip, 'id'>>) => void
+  removeLoadTrip: (id: string) => void
+  setDailyLoadLog: (date: string, partial: Partial<Omit<DailyLoadLog, 'date'>>) => void
   setAttendance: (workerId: string, date: string, status: AttendanceStatus) => void
   setFarmAssignment: (workerId: string, date: string, farmIds: string[]) => void
   updateSettings: (partial: Partial<Settings>) => void
@@ -109,11 +163,15 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
       workers: [],
       farms: DEFAULT_FARMS,
       dailyRecords: [],
-      settings: { ratePerTree: 25, pfPerTree: 2 },
+      settings: defaultSettings(),
       selectedWorkerIds: {},
       attendance: {},
       farmAssignments: {},
       salaryRuleHistory: [],
+      dailyAdvances: [],
+      loadTrips: [],
+      dailyLoadLogs: [],
+      salaryPayments: [],
 
       addWorker: (worker) => {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -123,8 +181,8 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
             {
               id,
               status: 'active',
-              workerType: 'plucker',
               ...worker,
+              workerType: normalizeWorkerType(worker.workerType ?? 'climber'),
             },
           ],
         }))
@@ -155,7 +213,7 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
               name,
               status: 'active',
-              workerType: 'plucker',
+              workerType: 'climber',
             })
           }
           if (additions.length === 0) return state
@@ -183,6 +241,15 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
           return {
             workers: state.workers.filter((w) => w.id !== id),
             dailyRecords: state.dailyRecords.filter((r) => r.workerId !== id),
+            dailyAdvances: state.dailyAdvances.filter((a) => a.workerId !== id),
+            loadTrips: state.loadTrips.map((t) => ({
+              ...t,
+              workerIds: t.workerIds.filter((wid) => wid !== id),
+              workerAdvances: Object.fromEntries(
+                Object.entries(t.workerAdvances).filter(([wid]) => wid !== id)
+              ),
+            })),
+            salaryPayments: state.salaryPayments.filter((p) => p.workerId !== id),
             selectedWorkerIds: nextSelected,
             attendance: nextAttendance,
             farmAssignments: nextAssignments,
@@ -281,6 +348,122 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
         })
       },
 
+      setDailyAdvance: (workerId, date, amount) => {
+        set((state) => {
+          const rest = state.dailyAdvances.filter(
+            (a) => !(a.workerId === workerId && a.date === date)
+          )
+          if (!amount || amount <= 0) {
+            return { dailyAdvances: rest }
+          }
+          return {
+            dailyAdvances: [...rest, { workerId, date, amount }],
+          }
+        })
+      },
+
+      adjustDailyAdvance: (workerId, date, delta) => {
+        if (!delta) return
+        set((state) => {
+          const current =
+            state.dailyAdvances.find(
+              (a) => a.workerId === workerId && a.date === date
+            )?.amount ?? 0
+          const next = Math.max(0, current + delta)
+          const rest = state.dailyAdvances.filter(
+            (a) => !(a.workerId === workerId && a.date === date)
+          )
+          if (next <= 0) {
+            return { dailyAdvances: rest }
+          }
+          return {
+            dailyAdvances: [...rest, { workerId, date, amount: next }],
+          }
+        })
+      },
+
+      setSalaryPayment: (workerId, periodFrom, periodTo, partial) => {
+        set((state) => {
+          const existing = state.salaryPayments.find(
+            (p) =>
+              p.workerId === workerId &&
+              p.periodFrom === periodFrom &&
+              p.periodTo === periodTo
+          )
+          const paidAmount = partial.paidAmount ?? existing?.paidAmount ?? 0
+          const deductAdvance =
+            partial.deductAdvance ?? existing?.deductAdvance ?? false
+          const rest = state.salaryPayments.filter(
+            (p) =>
+              !(
+                p.workerId === workerId &&
+                p.periodFrom === periodFrom &&
+                p.periodTo === periodTo
+              )
+          )
+          if (!paidAmount && !deductAdvance) {
+            return { salaryPayments: rest }
+          }
+          return {
+            salaryPayments: [
+              ...rest,
+              {
+                workerId,
+                periodFrom,
+                periodTo,
+                paidAmount,
+                deductAdvance,
+              },
+            ],
+          }
+        })
+      },
+
+      addLoadTrip: (trip) => {
+        const id = `trip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        set((state) => ({
+          loadTrips: [
+            ...state.loadTrips,
+            {
+              ...trip,
+              id,
+              dieselAmount: trip.dieselAmount ?? 0,
+              workerAdvances: trip.workerAdvances ?? {},
+            },
+          ],
+        }))
+        return id
+      },
+
+      updateLoadTrip: (id, partial) => {
+        set((state) => ({
+          loadTrips: state.loadTrips.map((t) =>
+            t.id === id ? { ...t, ...partial } : t
+          ),
+        }))
+      },
+
+      removeLoadTrip: (id) => {
+        set((state) => ({
+          loadTrips: state.loadTrips.filter((t) => t.id !== id),
+        }))
+      },
+
+      setDailyLoadLog: (date, partial) => {
+        set((state) => {
+          const existing = state.dailyLoadLogs.find((l) => l.date === date)
+          const next: DailyLoadLog = {
+            date,
+            notes: partial.notes ?? existing?.notes,
+          }
+          const rest = state.dailyLoadLogs.filter((l) => l.date !== date)
+          if (!next.notes) {
+            return { dailyLoadLogs: rest }
+          }
+          return { dailyLoadLogs: [...rest, next] }
+        })
+      },
+
       setAttendance: (workerId, date, status) => {
         set((state) => {
           const day = state.attendance[date] ?? EMPTY_ATTENDANCE_DAY
@@ -319,7 +502,9 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
           const merged: Settings = { ...state.settings, ...partial }
           if (
             merged.ratePerTree === state.settings.ratePerTree &&
-            merged.pfPerTree === state.settings.pfPerTree
+            merged.pfPerTree === state.settings.pfPerTree &&
+            merged.ratePerLoad === state.settings.ratePerLoad &&
+            merged.pfPerLoad === state.settings.pfPerLoad
           ) {
             return state
           }
@@ -342,21 +527,23 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
 
       importFromBackup: (backup) => {
         set((state) => {
-          const nextSettings = {
-            ratePerTree: backup.settings.ratePerTree,
-            pfPerTree: backup.settings.pfPerTree,
-          }
+          const nextSettings = defaultSettings(backup.settings)
           const nextFarms = backup.farms?.length ? backup.farms : state.farms
           const nextAttendance = backup.attendance ?? state.attendance
           const nextFarmAssignments =
             backup.farmAssignments ?? state.farmAssignments
           const nextHistory =
             backup.salaryRuleHistory ?? state.salaryRuleHistory
+          const nextWorkers = normalizeWorkers(backup.workers)
+          const nextAdvances = backup.dailyAdvances ?? []
+          const nextTrips = normalizeLoadTrips(backup.loadTrips ?? [])
+          const nextLoadLogs = backup.dailyLoadLogs ?? []
+          const nextSalaryPayments = backup.salaryPayments ?? []
 
           const incomingSig = farmBackupSignature({
             version: 1,
             updatedAt: backup.updatedAt,
-            workers: backup.workers,
+            workers: nextWorkers,
             dailyRecords: backup.dailyRecords,
             selectedWorkerIds: backup.selectedWorkerIds,
             settings: nextSettings,
@@ -364,6 +551,10 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
             attendance: nextAttendance,
             farmAssignments: nextFarmAssignments,
             salaryRuleHistory: nextHistory,
+            dailyAdvances: nextAdvances,
+            loadTrips: nextTrips,
+            dailyLoadLogs: nextLoadLogs,
+            salaryPayments: nextSalaryPayments,
           })
           const currentSig = farmStateSignature({
             workers: state.workers,
@@ -374,11 +565,15 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
             attendance: state.attendance,
             farmAssignments: state.farmAssignments,
             salaryRuleHistory: state.salaryRuleHistory,
+            dailyAdvances: state.dailyAdvances,
+            loadTrips: state.loadTrips,
+            dailyLoadLogs: state.dailyLoadLogs,
+            salaryPayments: state.salaryPayments,
           })
           if (incomingSig === currentSig) return state
 
           return {
-            workers: backup.workers,
+            workers: nextWorkers,
             dailyRecords: backup.dailyRecords,
             selectedWorkerIds: backup.selectedWorkerIds,
             farms: nextFarms,
@@ -386,6 +581,10 @@ export const useFarmStore = create<FarmStore>()((set, get) => ({
             farmAssignments: nextFarmAssignments,
             salaryRuleHistory: nextHistory,
             settings: nextSettings,
+            dailyAdvances: nextAdvances,
+            loadTrips: nextTrips,
+            dailyLoadLogs: nextLoadLogs,
+            salaryPayments: nextSalaryPayments,
           }
         })
       },

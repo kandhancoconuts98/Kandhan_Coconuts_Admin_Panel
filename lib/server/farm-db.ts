@@ -1,5 +1,13 @@
 import { getSupabaseAdmin } from '@/lib/server/supabase'
 import { getOrgId } from '@/lib/server/org-id'
+import {
+  buildExtendedBackupSlice,
+  defaultSettings,
+  normalizeDailyLoadLogs,
+  normalizeLoadTrips,
+  normalizeWorkers,
+} from '@/lib/operations-utils'
+import { normalizeWorkerType, workerTypeToDb } from '@/lib/worker-types'
 import type {
   FarmBackupV1,
   Worker,
@@ -78,7 +86,7 @@ export async function loadFarmState(orgId = getOrgId()): Promise<FarmBackupV1> {
       id: w.id,
       name: w.name,
       phone: w.phone ?? undefined,
-      workerType: (w.worker_type as Worker['workerType']) ?? 'plucker',
+      workerType: normalizeWorkerType(w.worker_type),
       status: (w.status as Worker['status']) ?? 'active',
       joiningDate: w.joining_date ?? undefined,
       salaryCategory: w.salary_category ?? undefined,
@@ -130,20 +138,28 @@ export async function loadFarmState(orgId = getOrgId()): Promise<FarmBackupV1> {
       changedAt: h.changed_at,
     })) ?? []
 
+  const extended = await loadExtendedOperations(orgId)
+
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
-    workers,
+    workers: normalizeWorkers(workers),
     dailyRecords,
     selectedWorkerIds,
     farms: farms.length ? farms : DEFAULT_FARMS,
     attendance,
     farmAssignments,
     salaryRuleHistory,
-    settings: {
+    settings: defaultSettings({
       ratePerTree: Number(settingsRow?.rate_per_tree ?? 25),
       pfPerTree: Number(settingsRow?.pf_per_tree ?? 2),
-    },
+      ratePerLoad: extended.settings.ratePerLoad,
+      pfPerLoad: extended.settings.pfPerLoad,
+    }),
+    dailyAdvances: extended.dailyAdvances,
+    loadTrips: extended.loadTrips,
+    dailyLoadLogs: extended.dailyLoadLogs,
+    salaryPayments: extended.salaryPayments,
   }
 }
 
@@ -182,7 +198,7 @@ export async function saveFarmState(
         org_id: orgId,
         name: w.name,
         phone: w.phone ?? null,
-        worker_type: w.workerType ?? 'plucker',
+        worker_type: workerTypeToDb(w.workerType),
         status: w.status ?? 'active',
         joining_date: w.joiningDate ?? null,
         salary_category: w.salaryCategory ?? null,
@@ -314,6 +330,50 @@ export async function saveFarmState(
   if (staleFarmIds.length) {
     await supabase.from('farms').delete().in('id', staleFarmIds)
   }
+
+  await saveExtendedOperations(orgId, data)
+}
+
+async function loadExtendedOperations(orgId: string) {
+  const supabase = getSupabaseAdmin()
+  const { data } = await supabase
+    .from('farm_backups')
+    .select('data')
+    .eq('farm_id', orgId)
+    .maybeSingle()
+
+  const ext = (data?.data ?? {}) as Record<string, unknown>
+  return {
+    dailyAdvances: (ext.dailyAdvances as FarmBackupV1['dailyAdvances']) ?? [],
+    loadTrips: normalizeLoadTrips((ext.loadTrips as FarmBackupV1['loadTrips']) ?? []),
+    dailyLoadLogs: normalizeDailyLoadLogs(
+      (ext.dailyLoadLogs as (DailyLoadLog & { dieselLiters?: number })[]) ?? []
+    ),
+    salaryPayments: (ext.salaryPayments as FarmBackupV1['salaryPayments']) ?? [],
+    settings: defaultSettings(
+      (ext.settings as Partial<FarmBackupV1['settings']>) ?? {}
+    ),
+  }
+}
+
+async function saveExtendedOperations(orgId: string, data: FarmBackupV1) {
+  const supabase = getSupabaseAdmin()
+  const { data: existing } = await supabase
+    .from('farm_backups')
+    .select('data')
+    .eq('farm_id', orgId)
+    .maybeSingle()
+
+  const prev = (existing?.data ?? {}) as Record<string, unknown>
+  await supabase.from('farm_backups').upsert({
+    farm_id: orgId,
+    data: {
+      ...prev,
+      ...buildExtendedBackupSlice(data),
+      version: 1,
+    },
+    updated_at: new Date().toISOString(),
+  })
 }
 
 async function migrateLegacyBackupIfPresent(orgId: string): Promise<boolean> {

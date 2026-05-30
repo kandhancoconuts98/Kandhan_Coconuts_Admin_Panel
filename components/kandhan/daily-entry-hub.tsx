@@ -1,127 +1,111 @@
 'use client'
 
-import { useMemo } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
+import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Calendar, AlertTriangle, Users, FileText } from 'lucide-react'
-import {
-  useFarmStore,
-  EMPTY_SELECTED_WORKER_IDS,
-  EMPTY_ATTENDANCE_DAY,
-} from '@/lib/store'
+import { TreePine, Truck, Calendar, History } from 'lucide-react'
+import { useFarmStore } from '@/lib/store'
+import { getDailyLoadTotals } from '@/lib/operations-utils'
+import { isClimber, isLoader } from '@/lib/worker-types'
 import { Button } from '@/components/ui/button'
 
 export function DailyEntryHub() {
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), [])
 
-  const { workers, dailyRecords, selected, attendance } = useFarmStore(
+  const { workers, dailyRecords, loadTrips } = useFarmStore(
     useShallow((s) => ({
       workers: s.workers,
       dailyRecords: s.dailyRecords,
-      selected: s.selectedWorkerIds[today] ?? EMPTY_SELECTED_WORKER_IDS,
-      attendance: s.attendance[today] ?? EMPTY_ATTENDANCE_DAY,
+      loadTrips: s.loadTrips,
     }))
   )
 
-  const { presentCount, enteredCount, pending, missingWorkers } = useMemo(() => {
-    const presentCount = selected.length
-    const enteredCount = dailyRecords.filter(
-      (r) => r.date === today && r.treeCount > 0
-    ).length
-    const pending = Math.max(0, presentCount - enteredCount)
-    const missingWorkers = workers.filter(
-      (w) =>
-        selected.includes(w.id) &&
-        !dailyRecords.some(
-          (r) =>
-            r.workerId === w.id && r.date === today && r.treeCount > 0
-        )
-    )
-    return { presentCount, enteredCount, pending, missingWorkers }
-  }, [workers, dailyRecords, selected, today])
+  const stats = useMemo(() => {
+    const climbers = workers.filter((w) => isClimber(w.workerType))
+    const loaders = workers.filter((w) => isLoader(w.workerType))
+    const treesToday = dailyRecords
+      .filter((r) => r.date === today)
+      .reduce((s, r) => s + r.treeCount, 0)
+    const loadTotals = getDailyLoadTotals(loadTrips, today)
+    return {
+      climbers: climbers.length,
+      loaders: loaders.length,
+      treesToday,
+      loadsToday: loadTotals.loads,
+    }
+  }, [workers, dailyRecords, loadTrips, today])
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold">Daily Entry</h1>
-        <p className="text-muted-foreground">Operations center for {today}</p>
+        <p className="text-muted-foreground">Operations for {today}</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Users} label="Workers selected" value={presentCount} />
-        <StatCard icon={FileText} label="Entries today" value={enteredCount} />
-        <StatCard
-          icon={AlertTriangle}
-          label="Pending"
-          value={pending}
-          tone="warning"
-        />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <MiniStat label="Climbers" value={stats.climbers} />
+        <MiniStat label="Loaders" value={stats.loaders} />
+        <MiniStat label="Trees today" value={stats.treesToday} />
+        <MiniStat label="Loads today" value={stats.loadsToday} />
       </div>
-
-      <Link
-        href="/daily-entry/bulk"
-        className="block bg-gradient-to-r from-primary to-secondary text-white rounded-2xl p-8 text-center shadow-lg hover:opacity-95 transition-opacity"
-      >
-        <Calendar className="size-12 mx-auto mb-4 opacity-90" />
-        <h2 className="text-2xl font-bold mb-2">Start Daily Entry</h2>
-        <p className="text-white/90">Open bulk entry table for all workers</p>
-      </Link>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-card rounded-xl border border-border p-6">
-          <h3 className="font-semibold mb-4">Quick links</h3>
-          <div className="space-y-2">
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/daily-entry/muster">Muster roll (select workers)</Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/daily-entry/history">Entry history</Link>
-            </Button>
-          </div>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-6">
-          <h3 className="font-semibold mb-4">Missing entries</h3>
-          {missingWorkers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              All selected workers have entries.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {missingWorkers.slice(0, 5).map((w) => (
-                <li key={w.id} className="text-sm flex justify-between">
-                  <span>{w.name}</span>
-                  <span className="text-warning">
-                    {attendance[w.id] === 'leave' ? 'Leave' : 'Pending'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <Link
+          href="/daily-entry/climbers"
+          className="block bg-gradient-to-br from-primary to-secondary text-white rounded-2xl p-8 shadow-lg hover:opacity-95 transition-opacity"
+        >
+          <TreePine className="size-12 mb-4 opacity-90" />
+          <h2 className="text-2xl font-bold mb-2">Tree climbers</h2>
+          <p className="text-white/90 text-sm mb-4">
+            Trees climbed, farm assignment, and attendance.
+          </p>
+        </Link>
+
+        <Link
+          href="/daily-entry/loads"
+          className="block bg-card border-2 border-primary/30 rounded-2xl p-8 shadow-sm hover:border-primary transition-colors"
+        >
+          <Truck className="size-12 mb-4 text-primary" />
+          <h2 className="text-2xl font-bold mb-2 text-foreground">Loads</h2>
+          <p className="text-muted-foreground text-sm mb-4">
+            Vehicle number, load count, workers on vehicle, and diesel.
+          </p>
+          <p className="text-sm text-primary font-medium">
+            {stats.loadsToday} loads logged today
+          </p>
+        </Link>
+      </div>
+
+      <div className="bg-card rounded-xl border border-border p-6">
+        <h3 className="font-semibold mb-4">More</h3>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/daily-entry/muster">
+              <Calendar className="size-4 mr-2" />
+              Muster roll
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/daily-entry/history">
+              <History className="size-4 mr-2" />
+              History
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/daily-entry/bulk">Legacy bulk entry</Link>
+          </Button>
         </div>
       </div>
     </div>
   )
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: number
-  tone?: 'warning'
-}) {
+function MiniStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
-      <Icon
-        className={`size-8 mb-3 ${tone === 'warning' ? 'text-warning' : 'text-primary'}`}
-      />
-      <p className="text-3xl font-bold">{value}</p>
-      <p className="text-sm text-muted-foreground">{label}</p>
+    <div className="bg-card rounded-xl border border-border p-4">
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )
 }

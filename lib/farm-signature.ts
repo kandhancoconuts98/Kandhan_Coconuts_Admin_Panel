@@ -9,6 +9,10 @@ export function farmStateSignature(state: {
   attendance?: FarmBackupV1['attendance']
   farmAssignments?: FarmBackupV1['farmAssignments']
   salaryRuleHistory?: FarmBackupV1['salaryRuleHistory']
+  dailyAdvances?: FarmBackupV1['dailyAdvances']
+  loadTrips?: FarmBackupV1['loadTrips']
+  dailyLoadLogs?: FarmBackupV1['dailyLoadLogs']
+  salaryPayments?: FarmBackupV1['salaryPayments']
 }): string {
   return JSON.stringify({
     workers: state.workers,
@@ -19,6 +23,10 @@ export function farmStateSignature(state: {
     attendance: state.attendance,
     farmAssignments: state.farmAssignments,
     salaryRuleHistory: state.salaryRuleHistory,
+    dailyAdvances: state.dailyAdvances,
+    loadTrips: state.loadTrips,
+    dailyLoadLogs: state.dailyLoadLogs,
+    salaryPayments: state.salaryPayments,
   })
 }
 

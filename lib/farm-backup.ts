@@ -12,13 +12,14 @@ export function buildFarmBackup(): FarmBackupV1 {
     workers: s.workers,
     dailyRecords: s.dailyRecords,
     selectedWorkerIds: s.selectedWorkerIds,
-    settings: {
-      ratePerTree: s.settings.ratePerTree,
-      pfPerTree: s.settings.pfPerTree,
-    },
+    settings: s.settings,
     farms: s.farms,
     attendance: s.attendance,
     farmAssignments: s.farmAssignments,
     salaryRuleHistory: s.salaryRuleHistory,
+    dailyAdvances: s.dailyAdvances,
+    loadTrips: s.loadTrips,
+    dailyLoadLogs: s.dailyLoadLogs,
+    salaryPayments: s.salaryPayments,
   }
 }

@@ -6,6 +6,9 @@ import { format } from 'date-fns'
 import { Search, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react'
 import { useFarmStore } from '@/lib/store'
 import { getWorkerWeeklyStats } from '@/lib/farm-utils'
+import { workerTypeLabel } from '@/lib/worker-types'
+import { LoadsSummarySection } from '@/components/kandhan/loads-summary-section'
+import { AdvancesSection } from '@/components/kandhan/advances-section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -39,18 +42,24 @@ import {
 export function WorkersView() {
   const workers = useFarmStore((s) => s.workers)
   const dailyRecords = useFarmStore((s) => s.dailyRecords)
+  const loadTrips = useFarmStore((s) => s.loadTrips)
   const settings = useFarmStore((s) => s.settings)
   const farms = useFarmStore((s) => s.farms)
   const removeWorker = useFarmStore((s) => s.removeWorker)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [tab, setTab] = useState<'workers' | 'loads' | 'advances'>('workers')
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const rows = useMemo(() => {
     return workers
       .map((w) => {
-        const stats = getWorkerWeeklyStats(w.id, dailyRecords, settings)
+        const stats = getWorkerWeeklyStats(w.id, dailyRecords, settings, new Date(), {
+          loadTrips,
+          workerType: w.workerType,
+        })
         const farmNames =
           w.assignedFarmIds
             ?.map((fid) => farms.find((f) => f.id === fid)?.name)
@@ -61,17 +70,21 @@ export function WorkersView() {
         const matchSearch = worker.name.toLowerCase().includes(search.toLowerCase())
         const matchStatus =
           statusFilter === 'all' || (worker.status ?? 'active') === statusFilter
-        return matchSearch && matchStatus
+        const matchType =
+          typeFilter === 'all' ||
+          (typeFilter === 'climber' && worker.workerType !== 'loader') ||
+          (typeFilter === 'loader' && worker.workerType === 'loader')
+        return matchSearch && matchStatus && matchType
       })
       .sort((a, b) => a.worker.name.localeCompare(b.worker.name))
-  }, [workers, dailyRecords, settings, farms, search, statusFilter])
+  }, [workers, dailyRecords, loadTrips, settings, farms, search, statusFilter, typeFilter])
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold">Workers</h1>
-          <p className="text-muted-foreground">Manage pluckers and farm staff</p>
+          <p className="text-muted-foreground">Tree climbers, loaders, advances & load logs</p>
         </div>
         <Button asChild>
           <Link href="/workers/new">
@@ -81,6 +94,34 @@ export function WorkersView() {
         </Button>
       </div>
 
+      <div className="flex gap-2 border-b border-border mb-6">
+        {(
+          [
+            ['workers', 'Workers'],
+            ['loads', 'Loads & diesel'],
+            ['advances', 'Advances'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'loads' && <LoadsSummarySection />}
+      {tab === 'advances' && <AdvancesSection />}
+
+      {tab === 'workers' && (
+        <>
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -103,6 +144,16 @@ export function WorkersView() {
             <SelectItem value="leave">On leave</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            <SelectItem value="climber">Tree climbers</SelectItem>
+            <SelectItem value="loader">Loaders</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Desktop table */}
@@ -111,9 +162,10 @@ export function WorkersView() {
           <TableHeader>
             <TableRow className="bg-muted/30">
               <TableHead>Worker</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Trees (week)</TableHead>
+              <TableHead>Trees / loads (week)</TableHead>
               <TableHead>Salary (week)</TableHead>
               <TableHead>Farms</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -122,7 +174,7 @@ export function WorkersView() {
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                   No workers yet. Add your first worker.
                 </TableCell>
               </TableRow>
@@ -138,6 +190,9 @@ export function WorkersView() {
                       </Avatar>
                       <span className="font-medium">{worker.name}</span>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{workerTypeLabel(worker.workerType)}</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {worker.phone ?? '—'}
@@ -192,11 +247,16 @@ export function WorkersView() {
               <StatusBadge status={worker.status ?? 'active'} />
             </div>
             <p className="text-sm text-muted-foreground">
-              {stats.trees} trees · ₹{Math.round(stats.net).toLocaleString()} this week
+              {worker.workerType === 'loader'
+                ? `${stats.trees} loads`
+                : `${stats.trees} trees`}{' '}
+              · ₹{Math.round(stats.net).toLocaleString()} this week
             </p>
           </Link>
         ))}
       </div>
+        </>
+      )}
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

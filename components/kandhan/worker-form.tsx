@@ -27,7 +27,7 @@ export function WorkerForm({ workerId }: { workerId?: string }) {
   const [name, setName] = useState(existing?.name ?? '')
   const [phone, setPhone] = useState(existing?.phone ?? '')
   const [workerType, setWorkerType] = useState<WorkerType>(
-    existing?.workerType ?? 'plucker'
+    existing?.workerType ?? 'climber'
   )
   const [status, setStatus] = useState<WorkerStatus>(
     existing?.status ?? 'active'
@@ -88,8 +88,8 @@ export function WorkerForm({ workerId }: { workerId?: string }) {
             <Select value={workerType} onValueChange={(v) => setWorkerType(v as WorkerType)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="plucker">Coconut Plucker</SelectItem>
-                <SelectItem value="general">General</SelectItem>
+                <SelectItem value="climber">Tree climber</SelectItem>
+                <SelectItem value="loader">Loader</SelectItem>
               </SelectContent>
             </Select>
           </div>

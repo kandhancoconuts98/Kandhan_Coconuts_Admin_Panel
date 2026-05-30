@@ -29,22 +29,28 @@ export function SettingsPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [ratePerTree, setRatePerTree] = useState(settings.ratePerTree)
   const [pfPerTree, setPfPerTree] = useState(settings.pfPerTree)
+  const [ratePerLoad, setRatePerLoad] = useState(settings.ratePerLoad)
+  const [pfPerLoad, setPfPerLoad] = useState(settings.pfPerLoad)
   // Supabase sync is automatic now (no settings UI)
 
   const handleEdit = () => {
     setRatePerTree(settings.ratePerTree)
     setPfPerTree(settings.pfPerTree)
+    setRatePerLoad(settings.ratePerLoad)
+    setPfPerLoad(settings.pfPerLoad)
     setIsEditing(true)
   }
 
   const handleCancel = () => {
     setRatePerTree(settings.ratePerTree)
     setPfPerTree(settings.pfPerTree)
+    setRatePerLoad(settings.ratePerLoad)
+    setPfPerLoad(settings.pfPerLoad)
     setIsEditing(false)
   }
 
   const handleSave = () => {
-    updateSettings({ ratePerTree, pfPerTree })
+    updateSettings({ ratePerTree, pfPerTree, ratePerLoad, pfPerLoad })
     setIsEditing(false)
     toast({
       title: 'Settings saved!',
@@ -55,6 +61,8 @@ export function SettingsPage() {
 
   const netRate = settings.ratePerTree - settings.pfPerTree
   const editNetRate = ratePerTree - pfPerTree
+  const netLoadRate = settings.ratePerLoad - settings.pfPerLoad
+  const editNetLoadRate = ratePerLoad - pfPerLoad
 
   return (
     <div className="space-y-6">
@@ -190,6 +198,66 @@ export function SettingsPage() {
               Salary = ₹{isEditing ? editNetRate : netRate} × 100 = ₹
               {((isEditing ? editNetRate : netRate) * 100).toLocaleString()}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calculator className="size-5 text-primary" />
+            Loader Rate Configuration
+          </CardTitle>
+          <CardDescription>
+            Payment rates for workers paid by loads picked
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="rate-load">Rate per Load (₹)</Label>
+              {isEditing ? (
+                <Input
+                  id="rate-load"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={ratePerLoad}
+                  onChange={(e) => setRatePerLoad(parseFloat(e.target.value) || 0)}
+                  className="text-lg"
+                />
+              ) : (
+                <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-lg font-medium">
+                  ₹{settings.ratePerLoad}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pf-load">PF Deduction per Load (₹)</Label>
+              {isEditing ? (
+                <Input
+                  id="pf-load"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={pfPerLoad}
+                  onChange={(e) => setPfPerLoad(parseFloat(e.target.value) || 0)}
+                  className="text-lg"
+                />
+              ) : (
+                <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-lg font-medium">
+                  ₹{settings.pfPerLoad}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="rounded-md bg-card p-3 font-mono text-sm">
+            <span className="text-primary">Loader salary</span>
+            <span className="text-muted-foreground"> = </span>
+            <span className="font-semibold text-accent">
+              ₹{isEditing ? editNetLoadRate : netLoadRate}
+            </span>
+            <span className="text-foreground"> × Loads</span>
           </div>
         </CardContent>
       </Card>
